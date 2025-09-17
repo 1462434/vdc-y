@@ -46,11 +46,5 @@ function draw() {
   circle(169,612,180);
   circle(423,679,180);
 
-  const canvas = document.querySelector('canvas');
-const link = document.createElement('a');
-link.download = 'mydrawing.png';
-link.href = canvas.toDataURL('image/png');
-link.click();
-
 }
 
