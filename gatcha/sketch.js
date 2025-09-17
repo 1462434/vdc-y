@@ -15,7 +15,7 @@ function preload() {
 function setup() {
   createCanvas(400, 400);
 
-  let button = createButton('ㅗ'); // 버튼 생성
+  let button = createButton('💫'); // 버튼 생성
   button.position(10, 10); // 버튼 위치
 
   // 버튼 누르면 랜덤 얼굴 바뀌기
