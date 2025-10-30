@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LP Mood Wheel – 5day Test</title>
+  <style>
+    html, body { height:100%; margin:0; background:#0d0f15; overflow:hidden; }
+    #c { display:block; width:100vw; height:100vh; }
+    button.nav{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  background:transparent;
+  border:none;
+  outline:none;
+  cursor:pointer;
+  user-select:none;
+
+  width:88px; height:88px;           /* 2배 크기 */
+  display:grid; place-items:center;
+  transition:opacity .2s, transform .15s;
+  opacity:.85;
+}
+button.nav:hover{
+  opacity:1;
+  transform:translateY(-50%) scale(1.05);
+}
+button.nav:active{
+  transform:translateY(-50%) scale(0.96);
+}
+
+/* 위치 */
+#prev{ left:2%; }
+#next{ right:2%; }
+
+/* 기본 화살표 (연한 회색) */
+button.nav svg{
+  width:56px; height:56px;
+  stroke:#bfbfbf;
+  stroke-width:1.6;
+  fill:none;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  transition:stroke .2s ease, opacity .2s ease;
+  opacity:.9;
+  pointer-events:none; /* 클릭 감지 방지 (버튼 전체 클릭) */
+}
+
+/* ✅ hover 시 화살표만 확실히 하얗게 */
+button.nav:hover svg{
+  stroke:#ffffff !important;
+  opacity:1 !important;
+  filter:drop-shadow(0 0 3px rgba(255,255,255,0.6)); /* 미세한 발광 */
+}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <button id="prev" class="nav">&#10094;</button>
+  <button id="next" class="nav">&#10095;</button>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let dpr = window.devicePixelRatio || 1;
+let W, H;
+function fit(){
+  W = canvas.width = window.innerWidth * dpr;
+  H = canvas.height = window.innerHeight * dpr;
+}
+window.addEventListener('resize', fit);
+fit();
+
+const DEG = Math.PI / 180;
+let baseSpeed = 30 * DEG; // 기본 회전 속도
+let angle = 0;
+let pointer = {x: Infinity, y: Infinity};
+canvas.addEventListener('mousemove', e=>{
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = (e.clientX - rect.left)*dpr;
+  pointer.y = (e.clientY - rect.top)*dpr;
+});
+canvas.addEventListener('mouseleave', ()=>{
+  pointer.x = Infinity; pointer.y = Infinity;
+});
+
+// ==== 테스트용 데이터 ====
+const days = [
+  {
+    date: "2025-10-30",
+    colors: [
+      { hex: "#F2B3C4", count: 20 },
+      { hex: "#F2CD5C", count: 1 }, 
+      { hex: "#04BFAD", count: 1 },
+      { hex: "#F2E9BD", count: 1 },
+      { hex: "#3F6F8C", count: 1 },
+      { hex: "#BFBFBF", count: 1 }, 
+      { hex: "#8C8880", count: 1 },
+      { hex: "#A65389", count: 1 }
+    ]
+  },
+  {
+    date: "2025-10-31",
+    colors: [
+      { hex: "#595959", count: 7 },
+      { hex: "#0C0D0B", count: 1 },
+      { hex: "#736F68", count: 4 }, 
+      { hex: "#275AF2", count: 1 },
+      { hex: "#3A5936", count: 1 },
+      { hex: "#F2F2F2", count: 2 },
+      { hex: "#F2B3C4", count: 6 }
+    ]
+  },
+  { date: "2025-11-01", colors: [{hex:"#8899AA", count:1}] },
+  { date: "2025-11-02", colors: [{hex:"#AA9988", count:1}] },
+  { date: "2025-11-03", colors: [{hex:"#9988AA", count:1}] }
+];
+
+let currentDay = 0; // 현재 표시 중인 날짜 index (0~4)
+
+// 버튼 & 키보드 전환
+document.getElementById('prev').onclick = ()=>changeDay(-1);
+document.getElementById('next').onclick = ()=>changeDay(1);
+window.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft') changeDay(-1);
+  if(e.key==='ArrowRight') changeDay(1);
+});
+function changeDay(dir){
+  const len = days.length;
+  currentDay = (currentDay + dir + len) % len; // ✅ 루프 ON
+}
+
+function loop(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#0d0f15';
+  ctx.fillRect(0,0,W,H);
+
+  const cx = W/2, cy = H/2;
+  const outerR = Math.min(W,H)*0.38;
+  const labelRatio = 0.27;
+  const innerR = outerR * labelRatio;
+
+  // === 커서 거리 기반 속도 조절 ===
+  let factor = 1.0;
+  if(isFinite(pointer.x)&&isFinite(pointer.y)){
+    const dx=pointer.x-cx, dy=pointer.y-cy;
+    const dist=Math.hypot(dx,dy);
+    if(dist<=innerR){factor=3.0;}
+    else if(dist<outerR){
+      const t=(dist-innerR)/(outerR-innerR);
+      factor=3.0-2.0*t;
+    } else factor=1.0;
+  }
+  angle += (baseSpeed*factor)/60;
+
+  // === 현재 날짜 데이터 불러오기 ===
+  const day = days[currentDay];
+  const total = day.colors.reduce((s,c)=>s+c.count,0);
+  let startAng = -Math.PI/2;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(angle);
+
+  // 도넛 배경
+  donutArc(innerR, outerR, 0, Math.PI*2, '#10131d');
+
+  // 데이터 기반 각도 비율로 채우기
+  day.colors.forEach((c,i)=>{
+    const ratio = c.count / total;
+    const endAng = startAng + ratio * Math.PI * 2;
+    donutArc(innerR, outerR, startAng, endAng, c.hex.trim());
+    startAng = endAng;
+  });
+
+  ctx.restore();
+
+  // 중앙 라벨 (날짜만)
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.beginPath();
+  ctx.arc(0,0,innerR*0.98,0,Math.PI*2);
+  ctx.fillStyle='#1a1e29';
+  ctx.fill();
+  ctx.fillStyle='#cfd5ff';
+  ctx.font=`${Math.max(12,Math.round(innerR*0.20))}px system-ui`;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillText(day.date,0,0);
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+
+function donutArc(r0,r1,a0,a1,color){
+  ctx.beginPath();
+  ctx.arc(0,0,r0,a0,a1,false);
+  ctx.arc(0,0,r1,a1,a0,true);
+  ctx.closePath();
+  ctx.fillStyle=color;
+  ctx.fill();
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
