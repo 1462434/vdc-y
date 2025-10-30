@@ -82,10 +82,10 @@ window.addEventListener('resize', fit);
 fit();
 
 const DEG = Math.PI / 180;
-let baseSpeed = 30 * DEG; // 기본 회전 속도
+let baseSpeed = 60 * DEG; // 기본 회전 속도
 let angle = 0;
 let pointer = {x: Infinity, y: Infinity};
-canvas.addEventListener('mousemove', e=>{
+window.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   pointer.x = (e.clientX - rect.left)*dpr;
   pointer.y = (e.clientY - rect.top)*dpr;
@@ -151,18 +151,28 @@ function loop(){
   const labelRatio = 0.27;
   const innerR = outerR * labelRatio;
 
-  // === 커서 거리 기반 속도 조절 ===
-  let factor = 1.0;
-  if(isFinite(pointer.x)&&isFinite(pointer.y)){
-    const dx=pointer.x-cx, dy=pointer.y-cy;
-    const dist=Math.hypot(dx,dy);
-    if(dist<=innerR){factor=3.0;}
-    else if(dist<outerR){
-      const t=(dist-innerR)/(outerR-innerR);
-      factor=3.0-2.0*t;
-    } else factor=1.0;
+  // === 커서 거리 기반 속도 조절 (업데이트 버전) ===
+let factor = 1.0;
+if (isFinite(pointer.x) && isFinite(pointer.y)) {
+  const dx = pointer.x - cx, dy = pointer.y - cy;
+  const dist = Math.hypot(dx, dy);
+
+  // ✅ 중앙 라벨 영역(내부 반경의 1.2배 이내)에 가까울수록 빠르게 회전
+  if (dist <= innerR * 1.2) {
+    factor = 13.0; // 최대 속도(가까이 갔을 때 13배) )
+  } else if (dist < outerR) {
+    const t = (dist - innerR * 1.2) / (outerR - innerR * 1.2);
+    factor = 5.0 - 4.0 * t; // 5 → 1로 선형 감속
+  } else {
+    factor = 1.0; // 기본속도
   }
-  angle += (baseSpeed*factor)/60;
+
+  // 확인용 로그 (필요 시 삭제 가능)
+  console.log('dist:', dist.toFixed(1), 'factor:', factor.toFixed(2));
+}
+
+// ✅ 속도 반영
+angle += (baseSpeed * factor) / 60;
 
   // === 현재 날짜 데이터 불러오기 ===
   const day = days[currentDay];
