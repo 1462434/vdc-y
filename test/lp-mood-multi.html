@@ -36,9 +36,9 @@ button.nav:active{
 
 /* 기본 화살표 (연한 회색) */
 button.nav svg{
-  width:56px; height:56px;
+  width:50px; height:50px;
   stroke:#bfbfbf;
-  stroke-width:1.6;
+  stroke-width:1.0;
   fill:none;
   stroke-linecap:round;
   stroke-linejoin:round;
@@ -57,8 +57,17 @@ button.nav:hover svg{
 </head>
 <body>
   <canvas id="c"></canvas>
-  <button id="prev" class="nav">&#10094;</button>
-  <button id="next" class="nav">&#10095;</button>
+ <button id="prev" class="nav" aria-label="이전 날짜">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M15 6l-6 6 6 6"></path>
+  </svg>
+</button>
+
+<button id="next" class="nav" aria-label="다음 날짜">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9 6l6 6-6 6"></path>
+  </svg>
+</button>
 
 <script>
 const canvas = document.getElementById('c');
