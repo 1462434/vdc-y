@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>V2.1 – LP Mood Wheel (donut fill by plays)</title>
+  <style>
+    html, body { height:100%; margin:0; background:#0d0f15; color:#e9e9ef; overflow:hidden; }
+    #c { display:block; width:100vw; height:100vh; }
+    .ui { position:fixed; left:16px; bottom:16px; background:rgba(18,20,28,.7); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:10px 12px; backdrop-filter: blur(6px); user-select:none; font:12px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, Arial, sans-serif; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .ui label{ display:inline-flex; align-items:center; gap:8px; }
+    .ui input[type="range"]{ width:120px; }
+    .sig{ position:fixed; left:14px; top:10px; opacity:.7; font:11px system-ui; letter-spacing:.02em }
+    .hint{ position:fixed; right:16px; bottom:16px; opacity:.7; font:12px system-ui }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="sig">drag to spin · wheel = size · [S] save · 하루=1개 도넛 · 각도=시간순(균등) · 두께 채움=재생횟수</div>
+<div class="ui">
+  <div class="row">
+    <label>속도(°/s) <input id="speed" type="range" min="0" max="180" step="1" value="45"/></label>
+    <label>최소채움 <input id="fmin" type="range" min="0" max="0.6" step="0.01" value="0.25"/></label>
+    <label>스케일
+      <select id="scale">
+        <option value="linear" selected>Linear</option>
+        <option value="log">Log</option>
+      </select>
+    </label>
+  </div>
+</div>
+<div class="hint">붙여넣기-실행 · Live Server 권장 · 잔상/발광/블러 없음(색면 선명)</div>
+
+<script>
+// =====================================================
+// V2.1 – LP Mood Wheel (Donut filled by plays)
+// - 하루 = 도넛 1개
+// - 각도 = 시간순(아침→밤) 균등 슬롯, 12시 시작
+// - 도넛 두께는 고정, 각 슬롯 내부의 채움(f_i)으로 재생량 표현
+// - 컬러는 불투명(source-over)로 직접 채움
+// - 중앙 라벨(작게) 비율은 외반지름의 ~0.22, 안에는 날짜 + 상위3색 스와치
+// - 커서가 중앙 가까울수록 회전 가속, 멀어질수록 기본속도로 복귀
+// =====================================================
+
+// === 샘플 데이터 ===
+const sampleDay = {
+  date: '2025-10-30',
+  tracks: [
+    { time: '07:40', title:'Acoustic Morning', color:'#74B7FF', plays: 1 },
+    { time: '08:20', title:'Daily Commute Beats', color:'#FFB357', plays: 2 },
+    { time: '10:05', title:'Focus – Ambient 1', color:'#7ADDBC', plays: 3 },
+    { time: '11:30', title:'Focus – Ambient 1', color:'#7ADDBC', plays: 1 },
+    { time: '13:10', title:'Lunch Jazz', color:'#FF8BA7', plays: 2 },
+    { time: '15:00', title:'Synth Pop', color:'#8D7BFF', plays: 1 },
+    { time: '17:40', title:'Commute Back', color:'#FFC76E', plays: 2 },
+    { time: '19:30', title:'Indie Chill', color:'#63E0FF', plays: 2 },
+    { time: '21:10', title:'Late Reading Piano', color:'#C1D4FF', plays: 2 },
+    { time: '23:00', title:'Sleep Drone', color:'#78CBAE', plays: 3 },
+  ]
+};
+
+// === 캔버스 셋업 ===
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let dpr = Math.max(1, devicePixelRatio||1), W=0, H=0;
+function fit(){ W=canvas.width=innerWidth*dpr; H=canvas.height=innerHeight*dpr; canvas.style.width=innerWidth+'px'; canvas.style.height=innerHeight+'px'; }
+addEventListener('resize', fit); fit();
+
+// === 파라미터 ===
+const DEG = Math.PI/180;
+let baseSpeedDeg = 45;     // 기본 회전 속도(°/s)
+let fMin = 0.25;           // 최소 채움 비율
+let scaleMode = 'linear';  // 'linear' | 'log'
+let radius = Math.min(W,H)*0.38; // LP 외반지름
+const labelRatio = 0.22;   // 중앙 라벨 반지름 비율(외반지름 대비)
+
+// === 인터랙션(드래그 + 커서 기반 가속) ===
+let isDrag=false, lastAngle=0, angularOffset=0; // 누적 오프셋
+let angularVel = 0;                             // 현재 각속도(rad/s)
+let pointer = {x: Infinity, y: Infinity};       // 커서 위치
+canvas.addEventListener('mousedown', e=>{ isDrag=true; lastAngle = angleAt(e); });
+addEventListener('mouseup', ()=>{ isDrag=false; });
+addEventListener('mousemove', e=>{
+  const r=canvas.getBoundingClientRect();
+  pointer.x = (e.clientX - r.left)*dpr;
+  pointer.y = (e.clientY - r.top)*dpr;
+  if(!isDrag) return; const a=angleAt(e); const da = a - lastAngle; lastAngle = a; angularOffset += da; angularVel = da*60; // 드래그 반영
+});
+addEventListener('mouseleave', ()=>{ pointer.x = Infinity; pointer.y = Infinity; });
+addEventListener('wheel', e=>{ e.preventDefault(); radius = clamp(radius + (e.deltaY>0? -20:20)*dpr, 120*dpr, Math.min(W,H)*0.48); }, {passive:false});
+function angleAt(e){ const r=canvas.getBoundingClientRect(); const x=(e.clientX-r.left)*dpr - W/2; const y=(e.clientY-r.top)*dpr - H/2; return Math.atan2(y,x); }
+
+// === 유틸 ===
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+function timeToMinutes(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
+
+// === 데이터 전처리: 같은 앨범 병합 + 시간순 정렬 ===
+function preprocess(day){
+  const byTitle = new Map();
+  for(const t of day.tracks){
+    const key=t.title;
+    if(!byTitle.has(key)) byTitle.set(key,{ title:t.title, color:t.color, plays:0, timeMin:timeToMinutes(t.time) });
+    const obj=byTitle.get(key); obj.plays += (t.plays||1); obj.timeMin = Math.min(obj.timeMin, timeToMinutes(t.time));
+  }
+  const arr = Array.from(byTitle.values()).sort((a,b)=> a.timeMin - b.timeMin);
+  return arr;
+}
+
+let slots = preprocess(sampleDay);
+
+// === 채움 비율 계산 (독립 정규화: 각 슬롯은 w_max 기준으로 f_i 산출) ===
+function computeFillFractions(items){
+  const maxP = Math.max(...items.map(i=>i.plays), 1);
+  for(const it of items){
+    let f = (scaleMode==='log')
+      ? Math.log(1+it.plays)/Math.log(1+maxP)
+      : it.plays / maxP; // 0..1
+    it.fill = clamp(fMin + f*(1-fMin), fMin, 1); // 최소 채움 보장
+  }
+}
+computeFillFractions(slots);
+
+// === 드로잉 루프 ===
+let t0 = performance.now();
+function loop(){
+  // 배경(불투명) – 잔상 없음
+  ctx.globalCompositeOperation='source-over';
+  ctx.filter='none';
+  ctx.fillStyle = '#0d0f15';
+  ctx.fillRect(0,0,W,H);
+
+  // LP 기하 파라미터(프레임마다 계산: 반응형/휠 반영)
+  const outerR = radius;
+  const innerR = outerR * labelRatio; // 라벨 영역(작게)
+  const thickness = outerR - innerR;
+
+  // 커서 기반 속도 가속(중앙에서 빠르게, 바깥으로 갈수록 기본속도)
+  let factor = 1;
+  const cx = W/2, cy = H/2;
+  if (isFinite(pointer.x) && isFinite(pointer.y)) {
+    const dx = pointer.x - cx, dy = pointer.y - cy;
+    const dist = Math.hypot(dx, dy);
+    const fast = 3.0; // 중앙에서 기본속도의 3배
+    if (dist <= innerR) {
+      factor = fast;
+    } else if (dist <= outerR) {
+      factor = 1 + (fast - 1) * ((outerR - dist) / (outerR - innerR));
+    } else {
+      factor = 1;
+    }
+  }
+
+  // 회전 속도 업데이트(관성 혼합)
+  const base = (baseSpeedDeg * factor) * DEG;
+  angularVel = angularVel*0.9 + base*0.1;
+  angularOffset += angularVel * (1/60);
+
+  // 도넛 슬롯 그리기(각도 균등) – 외곽 지름 고정 유지
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.rotate(angularOffset - Math.PI/2); // 12시부터 시작
+
+  const N = slots.length;
+  const slotAng = (Math.PI*2)/Math.max(N,1);
+
+  // 전체 도넛 배경(지름을 일정하게 보이도록 먼저 그림)
+  donutArc(innerR, outerR, 0, Math.PI*2, '#10131d');
+
+  // 슬롯별 채움: [outerR - f*thickness, outerR] 범위를 불투명 색으로 채움
+  for(let i=0;i<N;i++){
+    const it = slots[i];
+    const a0 = i*slotAng;
+    const a1 = a0 + slotAng;
+    const r1 = outerR;
+    const r0 = outerR - it.fill*thickness;
+    donutArc(r0, r1, a0, a1, it.color);
+  }
+  ctx.restore();
+
+  // 중앙 라벨 원 + 내용(날짜, 상위 3색)
+  drawLabel(innerR);
+
+  requestAnimationFrame(loop);
+}
+
+function donutArc(r0, r1, a0, a1, color){
+  // Draws an annular sector ASSUMING the origin is already translated to canvas center
+  ctx.beginPath();
+  ctx.arc(0, 0, r0, a0, a1, false);
+  ctx.arc(0, 0, r1, a1, a0, true);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawLabel(innerR){
+  // 라벨 디스크(조금 밝게)
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.beginPath(); ctx.arc(0,0, innerR*0.98, 0, Math.PI*2);
+  ctx.fillStyle = '#1a1e29';
+  ctx.fill();
+  ctx.restore();
+
+  // 텍스트(날짜)
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#cfd5ff';
+  ctx.font = `${Math.max(12, Math.round(innerR*0.20))}px system-ui, -apple-system`;
+  ctx.fillText(sampleDay.date, W/2, H/2 - innerR*0.10);
+
+  // 상위 3색 스와치 (plays 기준)
+  const sorted=[...slots].sort((a,b)=>b.plays-a.plays).slice(0,3);
+  const size = innerR*0.095; const gap = size*0.5;
+  let x = W/2 - (sorted.length-1)*(size+gap)/2;
+  const y = H/2 + innerR*0.18;
+  for(const it of sorted){
+    ctx.beginPath(); ctx.arc(x,y,size,0,Math.PI*2); ctx.fillStyle=it.color; ctx.fill(); x += size+gap;
+  }
+}
+
+// === 저장 ===
+addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='s') savePNG(); });
+function savePNG(){
+  const t=document.createElement('canvas'); t.width=innerWidth; t.height=innerHeight; const tc=t.getContext('2d'); tc.drawImage(canvas,0,0,t.width,t.height); const a=document.createElement('a'); a.download=`lp-mood-${sampleDay.date}.png`; a.href=t.toDataURL('image/png'); a.click();
+}
+
+// === UI 바인딩 ===
+const $=s=>document.querySelector(s);
+$('#speed').addEventListener('input', e=> baseSpeedDeg = +e.target.value);
+$('#fmin').addEventListener('input',  e=>{ fMin = +e.target.value; computeFillFractions(slots); });
+$('#scale').addEventListener('change', e=>{ scaleMode = e.target.value; computeFillFractions(slots); });
+
+// === 시작 ===
+const obs = new ResizeObserver(()=>{ fit(); radius=Math.min(W,H)*0.38; }); obs.observe(document.body);
+ctx.fillStyle='#0d0f15'; ctx.fillRect(0,0,W,H);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

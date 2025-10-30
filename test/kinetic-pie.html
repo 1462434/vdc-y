@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kinetic Pie Abstraction – VS Code · one file</title>
+  <style>
+    html, body { height:100%; margin:0; background:#0c0d12; color:#e8e8ea; font:13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, Arial, sans-serif; }
+    #c { display:block; width:100vw; height:100vh; }
+    .ui { position:fixed; left:16px; bottom:16px; background:rgba(14,16,24,.6); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:10px 12px; backdrop-filter: blur(6px); user-select:none; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .ui label{ display:inline-flex; align-items:center; gap:8px; }
+    .ui input[type="range"]{ width:120px; }
+    .pill{ border:1px solid rgba(255,255,255,.14); padding:4px 10px; border-radius:999px; background:transparent; color:#e8e8ea; cursor:pointer; }
+    .pill.active{ background:rgba(255,255,255,.12); }
+    .sig{ position:fixed; left:14px; top:10px; opacity:.6; font-size:11px; letter-spacing:.02em }
+    .hint{ position:fixed; right:16px; bottom:16px; opacity:.7; font-size:12px }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="sig">drag to orbit · wheel = size · [S] save · [R] random week</div>
+<div class="ui">
+  <div class="row" style="margin-bottom:6px">
+    <span style="opacity:.7">palette</span>
+    <button class="pill" data-pal="party">Party</button>
+    <button class="pill" data-pal="neon">Neon</button>
+    <button class="pill" data-pal="mono">Mono</button>
+  </div>
+  <div class="row">
+    <label>속도 <input id="speed" type="range" min="0" max="6" step="0.05" value="2.2"/></label>
+    <label>블러 <input id="blur" type="range" min="0" max="30" step="1" value="14"/></label>
+    <label>잔상 <input id="fade" type="range" min="0.02" max="0.22" step="0.005" value="0.06"/></label>
+    <button id="weekPrev" class="pill">◀︎ week</button>
+    <button id="weekNext" class="pill">week ▶︎</button>
+  </div>
+</div>
+<div class="hint">Open in VS Code → Right‑click → Open with Live Server (or just double‑click)</div>
+
+<script>
+// Kinetic Pie Abstraction – single HTML file (Canvas)
+// 아이디어: 한 주의 여론(퍼센트)을 파이 조각으로 그리고, 회전 애니메이션/잔상으로 
+// 점멸하는 시각적 진동(킨에틱 옵티컬) 효과 만들기.
+// 마우스 드래그로 회전 오프셋, 휠로 크기 변경. S=저장, R=랜덤 주.
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let dpr = Math.max(1, devicePixelRatio||1), W=0, H=0;
+function fit(){ W=canvas.width=innerWidth*dpr; H=canvas.height=innerHeight*dpr; canvas.style.width=innerWidth+'px'; canvas.style.height=innerHeight+'px'; }
+addEventListener('resize', fit); fit();
+
+// --- Demo data (퍼센트 합=100) ---
+// 형식: 각 주(week)는 { label, values:[ {name, pct}, ... ] }
+// 실제로는 갤럽 코리아 주간 지표 등으로 교체 가능
+const weeks = [
+  {label:'Week A', values:[
+    {name:'A', pct:36}, {name:'B', pct:27}, {name:'C', pct:15}, {name:'D', pct:9}, {name:'ETC', pct:13}
+  ]},
+  {label:'Week B', values:[
+    {name:'A', pct:33}, {name:'B', pct:29}, {name:'C', pct:16}, {name:'D', pct:8}, {name:'ETC', pct:14}
+  ]},
+  {label:'Week C', values:[
+    {name:'A', pct:31}, {name:'B', pct:30}, {name:'C', pct:18}, {name:'D', pct:7}, {name:'ETC', pct:14}
+  ]},
+  {label:'Week D', values:[
+    {name:'A', pct:28}, {name:'B', pct:31}, {name:'C', pct:19}, {name:'D', pct:6}, {name:'ETC', pct:16}
+  ]}
+];
+let weekIndex = 0;
+
+// --- Palettes ---
+const palettes = {
+  party: ['#3478F6','#EE4B2B','#FDB515','#2BB673','#8E44AD'],
+  neon:  ['#6EF3FF','#7B83FF','#B57BFF','#FF7BEF','#FFC67B'],
+  mono:  ['#fafafa','#cfcfcf','#a6a6a6','#7d7d7d','#545454']
+};
+let palName = 'party';
+
+// --- Params ---
+const params = { speed: 2.2, blur: 14, fade: 0.06 };
+
+// --- Interaction ---
+let radius = Math.min(W,H)*0.28;
+let drag=false, baseAngle=0, dragStart=0;
+canvas.addEventListener('mousedown', e=>{ drag=true; dragStart = angleAt(e); });
+addEventListener('mouseup', ()=> drag=false);
+addEventListener('mousemove', e=>{ if(drag){ const a=angleAt(e); baseAngle += (a-dragStart); dragStart=a; }});
+addEventListener('wheel', e=>{ e.preventDefault(); radius = Math.max(60, Math.min(Math.min(W,H)*0.45, radius + (e.deltaY>0? -20:20)*dpr )); }, {passive:false});
+
+function angleAt(e){ const r=canvas.getBoundingClientRect(); const x=(e.clientX-r.left)*dpr - W/2; const y=(e.clientY-r.top)*dpr - H/2; return Math.atan2(y,x); }
+
+// --- UI wiring ---
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+$('#speed').addEventListener('input', e=> params.speed = +e.target.value);
+$('#blur').addEventListener('input',  e=> params.blur  = +e.target.value);
+$('#fade').addEventListener('input',  e=> params.fade  = +e.target.value);
+$$('[data-pal]').forEach(b=> b.addEventListener('click', ()=> setPal(b.dataset.pal)));
+function setPal(n){ palName=n; $$('[data-pal]').forEach(b=> b.classList.toggle('active', b.dataset.pal===n)); }
+setPal(palName);
+$('#weekPrev').onclick = ()=>{ weekIndex=(weekIndex-1+weeks.length)%weeks.length; flash(); };
+$('#weekNext').onclick = ()=>{ weekIndex=(weekIndex+1)%weeks.length; flash(); };
+addEventListener('keydown', e=>{
+  const k=e.key.toLowerCase();
+  if(k==='s') savePNG();
+  if(k==='r'){ weekIndex = (Math.random()*weeks.length)|0; flash(); }
+});
+
+function savePNG(){
+  const t=document.createElement('canvas'); t.width=innerWidth; t.height=innerHeight; const tc=t.getContext('2d'); tc.drawImage(canvas,0,0,t.width,t.height); const a=document.createElement('a'); a.download=`kinetic-pie-${Date.now()}.png`; a.href=t.toDataURL('image/png'); a.click();
+}
+
+// --- Build pie arcs from current week ---
+function getSlices(){
+  const w = weeks[weekIndex];
+  const total = w.values.reduce((s,v)=>s+v.pct,0) || 1;
+  let start=0; const slices=[]; const pal=palettes[palName];
+  for(let i=0;i<w.values.length;i++){
+    const v = w.values[i];
+    const frac = v.pct/total; const ang = frac * Math.PI*2;
+    slices.push({ name:v.name, start, end:start+ang, color: pal[i%pal.length]});
+    start += ang;
+  }
+  return {label:w.label, slices};
+}
+
+// --- Motion ---
+let t0=performance.now();
+function loop(){
+  const t=(performance.now()-t0)/1000;
+  // 잔상 페이드
+  ctx.globalCompositeOperation='source-over';
+  ctx.filter = `blur(${params.blur}px)`; // 광학적 떨림 강화
+  ctx.fillStyle = `rgba(12,13,18,${params.fade})`;
+  ctx.fillRect(0,0,W,H);
+
+  // 파이 드로잉 (additive)
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.rotate(baseAngle + t*params.speed*0.8);
+  const {label, slices} = getSlices();
+  // 중심 원 반지름 계층 (고정 + 내외곽 링)
+  const rOuter = radius, rInner = radius*0.35;
+  ctx.globalCompositeOperation='lighter';
+  for(const s of slices){
+    // 메인 조각
+    pieArc(rInner, rOuter, s.start, s.end, s.color);
+    // 외곽 빛 번짐 링
+    pieArc(rOuter*1.02, rOuter*1.18, s.start, s.end, s.color+"55");
+  }
+  ctx.restore();
+
+  // 중앙 라벨 (선명하게 다시 그림)
+  ctx.filter='none';
+  ctx.globalCompositeOperation='source-over';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font = `${Math.max(12, Math.round(Math.min(W,H)*0.024))}px system-ui, -apple-system`;
+  ctx.fillStyle='#bfc3ff';
+  ctx.fillText(weeks[weekIndex].label, W/2, H/2);
+
+  requestAnimationFrame(loop);
+}
+
+function pieArc(r0, r1, a0, a1, color){
+  ctx.beginPath();
+  // 도넛 조각 경로
+  arcPolar(r0, a0, a1, false); // 내부 원호(시계)
+  arcPolar(r1, a1, a0, true);  // 외부 원호(반시계)로 닫기
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function arcPolar(r, a0, a1, ccw){
+  // 중심 기준 원호(폴라)
+  const n=48; // 호를 작은 선분으로 근사 (정확도↑)
+  const step = (a1-a0)/n;
+  for(let i=0;i<=n;i++){
+    const a = a0 + step*i;
+    const x = Math.cos(a)*r, y = Math.sin(a)*r;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+}
+
+function flash(){
+  // 주를 바꿀 때 잔상 강하게
+  ctx.fillStyle='rgba(12,13,18,0.9)';
+  ctx.fillRect(0,0,W,H);
+}
+
+// init
+const obs = new ResizeObserver(()=>{ fit(); radius=Math.min(W,H)*0.28; }); obs.observe(document.body);
+ctx.fillStyle='#0c0d12'; ctx.fillRect(0,0,W,H);
+loop();
+
+</script>
+</body>
+</html>
