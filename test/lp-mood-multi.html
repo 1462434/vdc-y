@@ -82,6 +82,8 @@ window.addEventListener('resize', fit);
 fit();
 
 const DEG = Math.PI / 180;
+let trailMode = true; // 잔상 모드 ON/OFF (T키로 토글)
+
 let baseSpeed = 60 * DEG; // 기본 회전 속도
 let angle = 0;
 let pointer = {x: Infinity, y: Infinity};
@@ -143,9 +145,17 @@ function changeDay(dir){
 
 function loop(){
   ctx.setTransform(1,0,0,1,0,0);
+  
+ if (trailMode) {
+  // 잔상 효과: 완전 지우지 않고 투명한 어두운 막을 덮어서 색을 섞이게 함
+  ctx.fillStyle = "rgba(13,15,21,0.06)";
+  ctx.fillRect(0,0,W,H);
+} else {
+  // 잔상모드가 아닐 때는 기존처럼 완전 지움
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle = '#0d0f15';
   ctx.fillRect(0,0,W,H);
+}
 
   const cx = W/2, cy = H/2;
   const outerR = Math.min(W,H)*0.38;
