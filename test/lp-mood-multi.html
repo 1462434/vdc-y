@@ -256,16 +256,26 @@ if (isFinite(pointer.x) && isFinite(pointer.y)) {
   console.log('dist:', dist.toFixed(1), 'factor:', factor.toFixed(2));
 }
 
-// ✅ 속도 반영 (Pause on Hover 기능 추가)
+// ✅ 속도 반영 (Pause on Hover + 부드러운 감속 기능 추가)
 const dx2 = pointer.x - cx;
 const dy2 = pointer.y - cy;
 const r2  = Math.hypot(dx2, dy2);
 
-// 마우스가 도넛 위에 있을 때는 회전 일시정지
-if (r2 <= innerR || r2 >= outerR) {
-  // 중앙부나 외곽일 때만 회전
-  angle += (baseSpeed * factor) / 60;
+// 회전 속도를 부드럽게 조절하기 위한 가상 속도 변수
+if (typeof loop.spinSpeed === 'undefined') loop.spinSpeed = baseSpeed;
+
+// 도넛 위에 있을 때 → 천천히 감속 (목표 속도 = 0)
+// 도넛 바깥 또는 중앙에 있을 때 → 원래 속도로 복귀
+let targetSpeed = baseSpeed;
+if (r2 > innerR && r2 < outerR) {
+  targetSpeed = 0; // 도넛 위에서는 멈춤 목표
 }
+
+// 현재 속도를 목표 속도로 보간 (부드럽게 변화)
+loop.spinSpeed += (targetSpeed - loop.spinSpeed) * 0.09;
+
+// 실제 회전 적용 (보간된 속도로)
+angle += (loop.spinSpeed * factor) / 60;
 
   // === 현재 날짜 데이터 불러오기 ===
   const day = days[currentDay];
