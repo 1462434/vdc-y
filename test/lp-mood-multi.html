@@ -256,8 +256,16 @@ if (isFinite(pointer.x) && isFinite(pointer.y)) {
   console.log('dist:', dist.toFixed(1), 'factor:', factor.toFixed(2));
 }
 
-// ✅ 속도 반영
-angle += (baseSpeed * factor) / 60;
+// ✅ 속도 반영 (Pause on Hover 기능 추가)
+const dx2 = pointer.x - cx;
+const dy2 = pointer.y - cy;
+const r2  = Math.hypot(dx2, dy2);
+
+// 마우스가 도넛 위에 있을 때는 회전 일시정지
+if (r2 <= innerR || r2 >= outerR) {
+  // 중앙부나 외곽일 때만 회전
+  angle += (baseSpeed * factor) / 60;
+}
 
   // === 현재 날짜 데이터 불러오기 ===
   const day = days[currentDay];
