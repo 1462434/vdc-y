@@ -53,6 +53,34 @@ button.nav:hover svg{
   opacity:1 !important;
   filter:drop-shadow(0 0 3px rgba(255,255,255,0.6)); /* 미세한 발광 */
 }
+
+/* --- Tooltip --- */
+#tooltip {
+  background: rgba(10,12,18,0.9);
+  color: #E6E8EE;
+  font: 13px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+#tooltip .row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+#tooltip .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 10px;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+#tooltip .text {
+  letter-spacing: 0.1px;
+}
   </style>
 </head>
 <body>
@@ -83,6 +111,8 @@ fit();
 
 const DEG = Math.PI / 180;
 let trailMode = true; // 잔상 모드 ON/OFF (T키로 토글)
+let currentSegments = [];                  // 현재 날짜의 조각 정보(툴팁용)
+let lastClient = { x: 0, y: 0 };           // ← 추가 2: 툴팁 위치용 윈도우 좌표
 
 let baseSpeed = 60 * DEG; // 기본 회전 속도
 let angle = 0;
@@ -91,6 +121,9 @@ window.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   pointer.x = (e.clientX - rect.left)*dpr;
   pointer.y = (e.clientY - rect.top)*dpr;
+
+  lastClient.x = e.clientX;  // ← 추가
+  lastClient.y = e.clientY;  // ← 추가
 });
 canvas.addEventListener('mouseleave', ()=>{
   pointer.x = Infinity; pointer.y = Infinity;
@@ -156,6 +189,7 @@ const days = [
     {hex:"#CEECF2", count:1}, // 그대가 이렇게 내 맘에
     {hex:"#D9A0AB", count:1}, // 메아리
     {hex:"#F2D649", count:5}, // 포옹
+    { hex: "#F20C8B", count:6}, // 다시 밤이 없겠고
     {hex:"#221100", count:1},
     {hex:"#221100", count:1},
 ] },
@@ -167,9 +201,16 @@ let currentDay = 0; // 현재 표시 중인 날짜 index (0~4)
 // 버튼 & 키보드 전환
 document.getElementById('prev').onclick = ()=>changeDay(-1);
 document.getElementById('next').onclick = ()=>changeDay(1);
+// 키보드 이벤트 (좌우 전환 + trailMode 토글)
 window.addEventListener('keydown', e=>{
-  if(e.key==='ArrowLeft') changeDay(-1);
-  if(e.key==='ArrowRight') changeDay(1);
+  if (e.key === 'ArrowLeft')  changeDay(-1);
+  if (e.key === 'ArrowRight') changeDay(1);
+
+  // ✅ 'KeyT'는 입력기 상태(한/영)에 상관없이 항상 T키를 인식함
+  if (e.code === 'KeyT') {
+    trailMode = !trailMode;
+    console.log('trailMode:', trailMode ? 'ON' : 'OFF');
+  }
 });
 function changeDay(dir){
   const len = days.length;
@@ -229,16 +270,81 @@ angle += (baseSpeed * factor) / 60;
   // 도넛 배경
   donutArc(innerR, outerR, 0, Math.PI*2, '#10131d');
 
-  // 데이터 기반 각도 비율로 채우기
-  day.colors.forEach((c,i)=>{
-    const ratio = c.count / total;
-    const endAng = startAng + ratio * Math.PI * 2;
-    donutArc(innerR, outerR, startAng, endAng, c.hex.trim());
-    startAng = endAng;
+  // 세그먼트 배열 초기화 (툴팁용 정보 저장)
+currentSegments = [];
+
+const EPS = 0.002; // 경계 점섬 완화용 아주 작은 오버랩(라디안)
+
+// 데이터 기반 각도 비율로 채우기 + 세그먼트 기록
+day.colors.forEach((c,i)=>{
+  const ratio  = c.count / total;
+  const endAng = startAng + ratio * Math.PI * 2;
+
+  // 그리기(경계 틈 방지: 끝각을 살짝 더 칠함)
+  donutArc(innerR, outerR, startAng, endAng + EPS, (c.hex || '').trim());
+
+  // 세그먼트 기록(툴팁용)
+  currentSegments.push({
+    start: startAng,         // 시작 각도(라디안)  - 회전 전 기준
+    end:   endAng,           // 끝 각도(라디안)    - 회전 전 기준
+    hex:   (c.hex || '').trim(),
+    title: c.title || '',    // 없으면 빈 문자열
+    artist:c.artist || '',
+    count: c.count
   });
 
-  ctx.restore();
+  startAng = endAng;
+});
 
+  ctx.restore();
+/* --- [툴팁 판별 & 표시] --- */
+const tooltip = document.getElementById('tooltip');
+let show = false;
+
+if (isFinite(pointer.x) && isFinite(pointer.y)) {
+  const dx = pointer.x - cx;
+  const dy = pointer.y - cy;
+  const r  = Math.hypot(dx, dy);
+
+  if (r > innerR && r < outerR) {
+    // 회전 보정
+    let theta = Math.atan2(dy, dx) - angle;
+    if (theta < 0) theta += Math.PI * 2;
+
+    // 시작 기준(-PI/2) 맞추기 → 0..2PI
+    let local = theta - (-Math.PI / 2);
+    local %= (Math.PI * 2);
+    if (local < 0) local += Math.PI * 2;
+
+    for (let seg of currentSegments) {
+      let s = seg.start - (-Math.PI / 2);
+      let e = seg.end   - (-Math.PI / 2);
+      if (s < 0) { s += Math.PI * 2; e += Math.PI * 2; }
+
+      const inRange = (local >= s && local < e) ||
+                      (e > Math.PI*2 && local < (e - Math.PI*2));
+
+      if (inRange) {
+        const name = (seg.title && seg.artist) ? `${seg.title} – ${seg.artist}` :
+                     seg.title || seg.artist || seg.hex;
+
+        tooltip.innerHTML = `
+          <div class="row">
+            <span class="dot" style="background:${seg.hex};"></span>
+            <span class="text">${name}</span>
+          </div>
+        `;
+        const offset = 12;
+        tooltip.style.left = (lastClient.x + offset) + 'px';
+        tooltip.style.top  = (lastClient.y + offset) + 'px';
+        tooltip.style.display = 'block';
+        show = true;
+        break;
+      }
+    }
+  }
+}
+if (!show) tooltip.style.display = 'none';
   // 중앙 라벨 (날짜만)
   ctx.save();
   ctx.translate(cx,cy);
@@ -267,5 +373,8 @@ function donutArc(r0,r1,a0,a1,color){
 
 requestAnimationFrame(loop);
 </script>
+
+<div id="tooltip" style="position:fixed; left:-9999px; top:-9999px; display:none; z-index:20;"></div>
+
 </body>
 </html>
