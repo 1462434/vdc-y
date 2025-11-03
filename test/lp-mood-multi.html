@@ -56,13 +56,13 @@ button.nav:hover svg{
 
 /* --- Tooltip --- */
 #tooltip {
-  background: rgba(10,12,18,0.9);
-  color: #E6E8EE;
-  font: 13px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: rgba(11,13,19,0.92);                 /* 약간 더 차분함 */
+  color: #E2E6F3;                                   /* 미세 톤다운 */
+  font: 12.5px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; /* 0.5px 낮춰 정교함 */
   padding: 8px 10px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.10);         /* 경계 과장 줄임 */
   border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.32);          /* 섀도우 살짝 축소 */
   pointer-events: none;
   white-space: nowrap;
 }
@@ -256,7 +256,7 @@ function loop(){
   
  if (trailMode) {
   // 잔상 효과: 완전 지우지 않고 투명한 어두운 막을 덮어서 색을 섞이게 함
-  ctx.fillStyle = "rgba(13,15,21,0.06)";
+  ctx.fillStyle = "rgba(13,15,21,0.05)";
   ctx.fillRect(0,0,W,H);
 } else {
   // 잔상모드가 아닐 때는 기존처럼 완전 지움
@@ -286,8 +286,6 @@ if (isFinite(pointer.x) && isFinite(pointer.y)) {
     factor = 1.0; // 기본속도
   }
 
-  // 확인용 로그 (필요 시 삭제 가능)
-  console.log('dist:', dist.toFixed(1), 'factor:', factor.toFixed(2));
 }
 
 // ✅ 속도 반영 (Pause on Hover + 부드러운 감속 기능 추가)
@@ -325,7 +323,7 @@ angle += (loop.spinSpeed * factor) / 60;
   // 세그먼트 배열 초기화 (툴팁용 정보 저장)
 currentSegments = [];
 
-const EPS = 0.002; // 경계 점섬 완화용 아주 작은 오버랩(라디안)
+const EPS = 0.003; // 경계 점섬 완화용 아주 작은 오버랩(라디안)
 
 // 데이터 기반 각도 비율로 채우기 + 세그먼트 기록
 day.colors.forEach((c,i)=>{
@@ -404,7 +402,7 @@ if (!show) tooltip.style.display = 'none';
   ctx.arc(0,0,innerR*0.98,0,Math.PI*2);
   ctx.fillStyle='#151822';
   ctx.fill();
-  ctx.fillStyle='#cfd5ff';
+  ctx.fillStyle='#c9cfe6';
   ctx.font=`${Math.max(12,Math.round(innerR*0.20))}px system-ui`;
   ctx.textAlign='center';
   ctx.textBaseline='middle';
@@ -424,6 +422,39 @@ function donutArc(r0,r1,a0,a1,color){
 }
 
 requestAnimationFrame(loop);
+// === 툴팁 점(dot)의 테두리 자동 대비 설정 ===
+function getLuminance(hex) {
+  // HEX를 RGB로 변환
+  const c = hex.replace('#','');
+  const r = parseInt(c.substr(0,2),16)/255;
+  const g = parseInt(c.substr(2,2),16)/255;
+  const b = parseInt(c.substr(4,2),16)/255;
+  // 감마 보정
+  const srgb = [r,g,b].map(v=>v<=0.03928? v/12.92 : Math.pow((v+0.055)/1.055, 2.4));
+  return 0.2126*srgb[0] + 0.7152*srgb[1] + 0.0722*srgb[2];
+}
+
+// 툴팁 업데이트 시 점 테두리 색 자동 조정
+const tooltipObserver = new MutationObserver(() => {
+  const dot = document.querySelector('#tooltip .dot');
+  if (!dot) return;
+  const bg = getComputedStyle(dot).backgroundColor;
+  const m = bg.match(/\d+/g);
+  if (!m) return;
+  const r = parseInt(m[0]), g = parseInt(m[1]), b = parseInt(m[2]);
+  const luminance = (0.2126*r + 0.7152*g + 0.0722*b)/255;
+  dot.style.borderColor = luminance > 0.6 ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.28)';
+});
+const tooltipEl = document.getElementById('tooltip');
+if (tooltipEl) {
+  tooltipObserver.observe(tooltipEl, { childList: true, subtree: true });
+} else {
+  // DOM 생성 이후 다시 시도 (안전망)
+  window.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('tooltip');
+    if (el) tooltipObserver.observe(el, { childList: true, subtree: true });
+  });
+}
 </script>
 
 <div id="tooltip" style="position:fixed; left:-9999px; top:-9999px; display:none; z-index:20;"></div>
