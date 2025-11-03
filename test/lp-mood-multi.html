@@ -125,7 +125,7 @@ window.addEventListener('mousemove', e => {
   lastClient.x = e.clientX;  // ← 추가
   lastClient.y = e.clientY;  // ← 추가
 });
-canvas.addEventListener('mouseleave', ()=>{
+window.addEventListener('mouseleave', ()=>{
   pointer.x = Infinity; pointer.y = Infinity;
 });
 
