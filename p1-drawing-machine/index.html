@@ -240,10 +240,29 @@ window.addEventListener('keydown', e=>{
   if (e.key === 'ArrowLeft')  changeDay(-1);
   if (e.key === 'ArrowRight') changeDay(1);
 
-  // ✅ 'KeyT'는 입력기 상태(한/영)에 상관없이 항상 T키를 인식함
   if (e.code === 'KeyT') {
     trailMode = !trailMode;
     console.log('trailMode:', trailMode ? 'ON' : 'OFF');
+  }
+
+  if (e.key === 's' || e.key === 'S') {
+    try {
+      const day = (typeof days !== 'undefined' && days[currentDay]) ? days[currentDay] : null;
+      const stamp = day && day.date ? day.date : new Date().toISOString().slice(0,10);
+      const fileName = `drawing-machine_${stamp}.png`;
+
+      const a = document.createElement('a');
+      a.download = fileName;
+      a.href = canvas.toDataURL('image/png');
+      document.body.appendChild(a); // Safari 대응
+      a.click();
+      document.body.removeChild(a);
+
+      console.log('[SAVE] PNG saved:', fileName);
+    } catch (err) {
+      console.error('PNG 저장 오류:', err);
+      alert('이미지 저장에 실패했어요.');
+    }
   }
 });
 function changeDay(dir){
